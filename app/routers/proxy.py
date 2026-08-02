@@ -193,9 +193,9 @@ async def forward(
         )
 
     url = f"{base_url}/{upstream_path.lstrip('/')}"
-    headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP_BY_HOP}
+    headers = {k.lower(): v for k, v in request.headers.items() if k.lower() not in HOP_BY_HOP}
     headers.update(auth_headers(key.provider, decrypt_secret(key.secret_ciphertext)))
-    headers.pop("accept-encoding", None)
+    headers["accept-encoding"] = "identity" # <-- Forces upstream to send plain UTF-8 text
 
     client = get_client()
     started = time.perf_counter()
@@ -220,7 +220,7 @@ async def forward(
 
     async def body_iterator():
         try:
-            async for chunk in upstream.aiter_raw():
+            async for chunk in upstream.aiter_bytes(): # <-- Auto-decompresses if upstream sends gzip
                 if len(captured) < MAX_CAPTURE:
                     captured.extend(chunk[: MAX_CAPTURE - len(captured)])
                 yield chunk
