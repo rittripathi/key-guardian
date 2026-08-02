@@ -4,7 +4,7 @@
 <h1>Add an API key</h1>
 
 {% if created %}
-<!-- SUCCESS VIEW ONLY (Form is hidden when a key is created) -->
+<!-- SUCCESS VIEW (Only visible after creation) -->
 <div class="card">
   <h2 style="color:var(--good); font-size: 1.1rem; margin-bottom: 8px;">✓ Key added</h2>
   <p style="margin-bottom: 16px;">
@@ -64,10 +64,10 @@ def call_llm(prompt: str) -> str:
 
 {% else %}
 
-<!-- FORM VIEW ONLY -->
+<!-- FORM VIEW (Only visible when creating a new key) -->
 <div class="card">
   <form method="post" action="/keys/new" autocomplete="off">
-    <!-- Dummy fields to trick browser password managers/autofill -->
+    <!-- Hidden dummy inputs to trick browser password auto-fill -->
     <input type="text" name="fake_user" style="display:none;" tabindex="-1" />
     <input type="password" name="fake_pass" style="display:none;" tabindex="-1" />
 
