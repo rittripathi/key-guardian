@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Dashboard &middot; KeyShort{% endblock %}
+{% block content %}
+<div style="display:flex; align-items:center; justify-content:space-between;">
+  <h1>Your keys</h1>
+  <a href="/keys/new" class="btn">+ New key</a>
+</div>
+
+{% if not active_keys and not revoked_keys %}
+<div class="card">
+  <p class="muted">You haven't added any keys yet. <a href="/keys/new">Add your first one</a> and you'll get back a short alias to hand out instead of the real secret.</p>
+</div>
+{% endif %}
+
+{% if active_keys %}
+<div class="card">
+  {% for v in active_keys %}
+  <div class="key-card">
+    <div style="flex:2;">
+      <a class="alias" href="/keys/{{ v.key.alias }}">{{ v.key.alias }}</a>
+      {% if v.key.label %}<span class="muted"> &middot; {{ v.key.label }}</span>{% endif %}
+      <div class="muted" style="font-size:12px; margin-top:2px;">{{ v.key.provider }} &middot; added {{ v.key.created_at | since }}</div>
+    </div>
+    <div style="flex:1; min-width:140px;">
+      <div style="font-size:12px;" class="muted">Spend this month</div>
+      <div>{{ v.spend | money }}{% if v.limit and v.limit.spend_cap_usd %} <span class="muted">/ {{ v.limit.spend_cap_usd | money }}</span>{% endif %}</div>
+      {% if v.limit and v.limit.spend_cap_usd %}
+      <div class="bar {% if v.spend_pct >= 100 %}danger{% endif %}"><div style="width:{{ v.spend_pct }}%;"></div></div>
+      {% endif %}
+    </div>
+    <div style="flex:1; min-width:120px;">
+      <div style="font-size:12px;" class="muted">Requests today</div>
+      <div class="stat" style="font-size:16px;">{{ v.requests_today }}</div>
+    </div>
+    <div>
+      <form class="inline-form" method="post" action="/keys/{{ v.key.alias }}/revoke"
+            onsubmit="return confirm('Revoke {{ v.key.alias }}? It can be re-activated later.');">
+        <button type="submit" class="danger" style="margin:0;">Revoke</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if revoked_keys %}
+<h2>Revoked</h2>
+<div class="card">
+  {% for v in revoked_keys %}
+  <div class="key-card">
+    <div style="flex:2;">
+      <a class="alias muted" href="/keys/{{ v.key.alias }}">{{ v.key.alias }}</a>
+      <span class="badge badge-bad" style="margin-left:8px;">revoked</span>
+      <div class="muted" style="font-size:12px; margin-top:2px;">{{ v.key.revoked_at | since }}</div>
+    </div>
+    <div>
+      <form class="inline-form" method="post" action="/keys/{{ v.key.alias }}/activate">
+        <button type="submit" class="secondary" style="margin:0;">Re-activate</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}
