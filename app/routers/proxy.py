@@ -184,7 +184,6 @@ async def forward(
     body: bytes,
     *,
     is_test: bool = False,
-    timings: dict | None = None,
 ) -> StreamingResponse | JSONResponse:
     base_url = resolve_base_url(key.provider, key.base_url)
     if not base_url:
@@ -194,9 +193,9 @@ async def forward(
         )
 
     url = f"{base_url}/{upstream_path.lstrip('/')}"
-    headers = {k.lower(): v for k, v in request.headers.items() if k.lower() not in HOP_BY_HOP}
+    headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP_BY_HOP}
     headers.update(auth_headers(key.provider, decrypt_secret(key.secret_ciphertext)))
-    headers["accept-encoding"] = "identity"
+    headers.pop("accept-encoding", None)
 
     client = get_client()
     started = time.perf_counter()
@@ -217,52 +216,17 @@ async def forward(
             {"error": {"message": f"Upstream request failed: {exc}"}}, status_code=502
         )
 
-    upstream_ttfb_ms = (time.perf_counter() - started) * 1000  # <-- NEW
-
     captured = bytearray()
 
     async def body_iterator():
         try:
-            async for chunk in upstream.aiter_bytes():
+            async for chunk in upstream.aiter_raw():
                 if len(captured) < MAX_CAPTURE:
                     captured.extend(chunk[: MAX_CAPTURE - len(captured)])
                 yield chunk
         finally:
             await upstream.aclose()
 
-    def accounting() -> BackgroundTask:
-        latency_ms = int((time.perf_counter() - started) * 1000)
-        return BackgroundTask(
-            record_usage,
-            api_key_id=key.id,
-            user_id=key.user_id,
-            alias=key.alias,
-            path=upstream_path,
-            status_code=upstream.status_code,
-            body=bytes(captured),
-            latency_ms=latency_ms,
-            client_ip=client_ip,
-            is_test=is_test,
-        )
-
-    passthrough = {
-        k: v
-        for k, v in upstream.headers.items()
-        if k.lower() not in {"content-encoding", "content-length", "transfer-encoding", "connection"}
-    }
-
-    if timings:  # <-- NEW block
-        passthrough["x-vault-lookup-ms"] = f"{timings['lookup_ms']:.2f}"
-        passthrough["x-vault-limit-ms"] = f"{timings['limit_ms']:.2f}"
-        passthrough["x-vault-precheck-ms"] = f"{timings['precheck_ms']:.2f}"
-        passthrough["x-vault-ttfb-ms"] = f"{upstream_ttfb_ms:.2f}"
-
-    return StreamingResponse(
-        body_iterator(),
-        status_code=upstream.status_code,
-        headers=passthrough,
-        background=accounting(),
-    )
     def accounting() -> BackgroundTask:
         latency_ms = int((time.perf_counter() - started) * 1000)
         return BackgroundTask(
@@ -307,6 +271,7 @@ async def alias_status(alias: str, db: AsyncSession = Depends(get_db)):
         "rate_limit": limit.rate_limit if limit else 0,
     }
 
+
 @router.api_route(
     "/proxy/{alias}/{upstream_path:path}",
     methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
@@ -317,21 +282,22 @@ async def proxy(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    t0 = time.perf_counter()
     token = split_token(
         request.headers.get("authorization") or request.headers.get("x-api-key") or ""
     )
 
+    # 1. Resolve the alias. The path segment wins; the token may carry alias+passphrase.
     key = await load_key_by_alias(db, alias)
-    t_key = time.perf_counter()
     if key is None:
         return JSONResponse({"error": {"message": f"Unknown alias '{alias}'."}}, status_code=404)
 
+    # 2. Soft delete: revoked keys stop here, history stays intact.
     if not key.active:
         return JSONResponse(
             {"error": {"message": f"Alias '{alias}' has been revoked."}}, status_code=403
         )
 
+    # 3. Optional passphrase: caller must send "<alias><passphrase>" as the token.
     if key.passphrase_hash:
         if not token.startswith(key.alias):
             await report_auth_failure(key.id, key.user_id, key.alias)
@@ -346,11 +312,9 @@ async def proxy(
                 {"error": {"message": "Invalid passphrase for this alias."}}, status_code=401
             )
 
+    # 4 + 5. Redis-only pre-checks.
     limit = await load_limit(db, key.id)
-    t_limit = time.perf_counter()
-
     denied = await precheck(db, key, limit)
-    t_precheck = time.perf_counter()
     if denied is not None:
         return JSONResponse(
             {"error": {"message": denied.reason, "type": "keyshort_limit"}},
@@ -358,11 +322,4 @@ async def proxy(
         )
 
     body = await request.body()
-    return await forward(
-        request, key, limit, upstream_path, body,
-        timings={
-            "lookup_ms": (t_key - t0) * 1000,
-            "limit_ms": (t_limit - t_key) * 1000,
-            "precheck_ms": (t_precheck - t_limit) * 1000,
-        },
-    )
+    return await forward(request, key, limit, upstream_path, body)
