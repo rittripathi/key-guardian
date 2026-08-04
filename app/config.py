@@ -22,7 +22,12 @@ class Settings(BaseSettings):
     telegram_chat_id: str = ""
 
     session_cookie: str = "keyshort_session"
-    session_max_age: int = 60 * 60 * 24 * 14
+    session_max_age: int = 60 * 60 * 24  # 24h — was 14 days; tighter for a service holding decrypted keys
+
+    # When true, the proxy hot path returns X-Vault-*-Ms timing headers.
+    # Off by default: these are internal diagnostics, not something to leak
+    # to every caller. Flip on in Render's env vars only while benchmarking.
+    debug_timing: bool = False
 
     def normalized_database_url(self) -> str:
         url = self.database_url
