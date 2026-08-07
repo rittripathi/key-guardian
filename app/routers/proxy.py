@@ -220,7 +220,7 @@ async def forward(
 
     async def body_iterator():
         try:
-            async for chunk in upstream.aiter_raw():
+            async for chunk in upstream.aiter_bytes():
                 if len(captured) < MAX_CAPTURE:
                     captured.extend(chunk[: MAX_CAPTURE - len(captured)])
                 yield chunk

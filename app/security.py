@@ -11,9 +11,7 @@ from app.config import settings
 
 _hasher = PasswordHasher()
 _serializer = URLSafeTimedSerializer(settings.secret_key, salt="keyshort-session")
-
-
-# ---------- passwords / passphrases ----------
+#passwords / passphrases 
 
 def hash_secret(raw: str) -> str:
     return _hasher.hash(raw)
