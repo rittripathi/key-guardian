@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% block title %}{{ view.key.alias }} &middot; KeyShort{% endblock %}
+{% block content %}
+<div style="display:flex; align-items:center; justify-content:space-between;">
+  <h1><span class="alias">{{ view.key.alias }}</span>
+    {% if view.key.active %}<span class="badge badge-good">active</span>{% else %}<span class="badge badge-bad">revoked</span>{% endif %}
+  </h1>
+  <a href="/" class="muted">&larr; Dashboard</a>
+</div>
+
+<div class="card row">
+  <div>
+    <div class="muted" style="font-size:12px;">
+      <span class="hint" title="Estimated from token counts — may not exactly match your provider invoice.">Spend this month</span>
+    </div>
+    <div class="stat">{{ view.spend | money }}{% if view.limit and view.limit.spendCapUsd %} <span class="muted" style="font-size:14px;">/ {{ view.limit.spendCapUsd | money }}</span>{% endif %}</div>
+  </div>
+  <div>
+    <div class="muted" style="font-size:12px;">Requests today</div>
+    <div class="stat">{{ view.requests_today }}</div>
+  </div>
+  <div>
+    <div class="muted" style="font-size:12px;">Rate window usage</div>
+    <div class="stat">{{ view.rate_used }}{% if view.limit and view.limit.rateLimit %} <span class="muted" style="font-size:14px;">/ {{ view.limit.rateLimit }}</span>{% endif %}</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Use this alias</h2>
+  <pre id="curl-box">curl {{ base_url }}/proxy/{{ view.key.alias }}/v1/chat/completions \
+  -H "Authorization: Bearer {{ view.key.alias }}{% if view.key.passphraseHash %}&lt;passphrase&gt;{% endif %}"</pre>
+  <button
+    hx-post="/api/keys/{{ view.key.alias }}/test"
+    hx-target="#test-result"
+    hx-swap="innerHTML">
+    Test connection
+  </button>
+  <div id="test-result" style="margin-top:10px;"></div>
+</div>
+
+{% if view.key.active %}
+<div class="card">
+  <h2>Limits</h2>
+  <form method="post" action="/keys/{{ view.key.alias }}/limits">
+    <div class="row">
+      <div>
+        <label for="rate_limit">Rate limit (0 = off)</label>
+        <input type="number" id="rate_limit" name="rate_limit" min="0"
+               value="{{ view.limit.rateLimit if view.limit else 0 }}">
+      </div>
+      <div>
+        <label for="rate_window_seconds">per window (seconds)</label>
+        <input type="number" id="rate_window_seconds" name="rate_window_seconds" min="1"
+               value="{{ view.limit.rateWindowSeconds if view.limit else 60 }}">
+      </div>
+      <div>
+        <label for="rate_mode">Rate limit action</label>
+        <select id="rate_mode" name="rate_mode">
+          <option value="block" {% if not view.limit or view.limit.rateMode == 'block' %}selected{% endif %}>Block</option>
+          <option value="notify" {% if view.limit and view.limit.rateMode == 'notify' %}selected{% endif %}>Notify only</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label for="spend_cap_usd">Monthly spend cap USD (0 = off)</label>
+        <input type="number" id="spend_cap_usd" name="spend_cap_usd" min="0" step="0.01"
+               value="{{ view.limit.spendCapUsd if view.limit else 0 }}">
+      </div>
+      <div>
+        <label for="spend_mode">Spend cap action</label>
+        <select id="spend_mode" name="spend_mode">
+          <option value="block" {% if not view.limit or view.limit.spendMode == 'block' %}selected{% endif %}>Block</option>
+          <option value="notify" {% if view.limit and view.limit.spendMode == 'notify' %}selected{% endif %}>Notify only</option>
+        </select>
+      </div>
+    </div>
+    <p class="muted" style="font-size:12px; margin-top:6px;">
+      The spend cap is checked against an estimate derived from token counts, not your provider's exact invoice.
+    </p>
+    <button type="submit">Save limits</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Rename / label</h2>
+  <form method="post" action="/keys/{{ view.key.alias }}/rename">
+    <div class="row">
+      <div>
+        <label for="new_alias">Alias</label>
+        <input type="text" id="new_alias" name="new_alias" value="{{ view.key.alias }}" pattern="[a-zA-Z0-9_-]{2,32}" required>
+      </div>
+      <div>
+        <label for="label">Label</label>
+        <input type="text" id="label" name="label" value="{{ view.key.label }}">
+      </div>
+    </div>
+    <button type="submit" class="secondary">Save</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Passphrase</h2>
+  <p class="muted" style="font-size:13px;">
+    {% if view.key.passphraseHash %}A passphrase is currently required on this alias.{% else %}No passphrase set &mdash; anyone with the alias can use it.{% endif %}
+  </p>
+  <form method="post" action="/keys/{{ view.key.alias }}/passphrase">
+    <input type="password" name="passphrase" placeholder="Leave blank to remove the passphrase">
+    <button type="submit" class="secondary">Update passphrase</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Rotate secret</h2>
+  <p class="muted" style="font-size:13px;">Replaces the real provider key behind this alias. The alias and its history stay the same.</p>
+  <form method="post" action="/keys/{{ view.key.alias }}/rotate">
+    <input type="password" name="secret" placeholder="New provider API key" required>
+    <button type="submit" class="secondary">Rotate</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Danger zone</h2>
+  <form method="post" action="/keys/{{ view.key.alias }}/revoke"
+        onsubmit="return confirm('Revoke {{ view.key.alias }}? It can be re-activated later.');">
+    <button type="submit" class="danger">Revoke this key</button>
+  </form>
+</div>
+{% else %}
+<div class="card">
+  <p>This alias is revoked. History below is preserved.</p>
+  <form method="post" action="/keys/{{ view.key.alias }}/activate">
+    <button type="submit">Re-activate</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>Recent requests</h2>
+  {% if recent %}
+  <table>
+    <tr><th>Time</th><th>Path</th><th>Model</th><th>Status</th><th><span class="hint" title="Estimated from token counts — may not exactly match your provider invoice.">Cost</span></th><th>Latency</th></tr>
+    {% for r in recent %}
+    <tr>
+      <td>{{ r.createdAt | since }}</td>
+      <td>{{ r.path }}{% if r.isTest %} <span class="badge badge-warn">test</span>{% endif %}</td>
+      <td>{{ r.model or "-" }}</td>
+      <td>
+        {% if r.statusCode < 400 %}<span class="badge badge-good">{{ r.statusCode }}</span>
+        {% else %}<span class="badge badge-bad">{{ r.statusCode }}</span>{% endif %}
+      </td>
+      <td>{{ r.costUsd | money }}</td>
+      <td>{{ r.latencyMs }}ms</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">No requests through this alias yet.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Alerts on this alias</h2>
+  {% if alerts %}
+  <table>
+    <tr><th>Time</th><th>Kind</th><th>Message</th></tr>
+    {% for a in alerts %}
+    <tr>
+      <td>{{ a.createdAt | since }}</td>
+      <td>
+        {% if a.severity == 'critical' %}<span class="badge badge-bad">{{ a.kind }}</span>
+        {% else %}<span class="badge badge-warn">{{ a.kind }}</span>{% endif %}
+      </td>
+      <td>{{ a.message | safe }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="muted">No alerts yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

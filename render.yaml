@@ -1,10 +1,10 @@
 services:
   - type: web
     name: keyshort
-    runtime: python
+    runtime: node
     plan: free
-    buildCommand: pip install -r requirements.txt && alembic upgrade head
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    buildCommand: npm install
+    startCommand: npm run migrate && npm start
     healthCheckPath: /healthz
     envVars:
       - key: DATABASE_URL
@@ -14,24 +14,24 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: ENCRYPTION_KEY
-        sync: false          # python -m app.security  ->  paste output
+        sync: false          # npm run generate-key  ->  paste output
       - key: PUBLIC_BASE_URL
         sync: false          # https://keyshort.onrender.com
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TELEGRAM_CHAT_ID
         sync: false
-      - key: PYTHON_VERSION
-        value: "3.12.7"
+      - key: NODE_VERSION
+        value: "22.x"
 
   - type: cron
     name: keyshort-keepalive
-    runtime: python
+    runtime: node
     plan: free
     rootDir: backend
     schedule: "*/10 * * * *"
-    buildCommand: pip install -r requirements.txt
-    command: python scripts/keepalive.py
+    buildCommand: npm install
+    command: npm run keepalive
     envVars:
       - key: PUBLIC_BASE_URL
         sync: false
