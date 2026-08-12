@@ -51,10 +51,6 @@ function createApp() {
     return res.render("error.html", { status_code: 404, detail: "Not found", user: req.user || null });
   });
 
-  // Central error handler — mirrors main.py's HTTPException handler:
-  // 401 outside /proxy and /api redirects to the login page; /proxy and
-  // /api errors are always JSON; everything else renders error.html.
-  // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, next) => {
     const statusCode = err instanceof HttpError ? err.statusCode : err.statusCode || 500;
     const detail = err instanceof HttpError ? err.detail : "Something went wrong.";

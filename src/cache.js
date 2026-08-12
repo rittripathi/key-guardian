@@ -63,14 +63,12 @@ async function bumpRate(apiKeyId, window) {
   return count;
 }
 
-/** null means "not cached" — the caller should reconcile from Postgres. */
 async function peekSpend(apiKeyId) {
   const value = await getRedis().get(spendKey(apiKeyId));
   return value !== null ? parseFloat(value) : null;
 }
 
 async function setSpend(apiKeyId, amount) {
-  // 40 days so a month-boundary key expires on its own
   await getRedis().set(spendKey(apiKeyId), amount.toFixed(6), "EX", 60 * 60 * 24 * 40);
 }
 
@@ -92,7 +90,6 @@ async function bumpAuthFailures(apiKeyId) {
   return count;
 }
 
-/** Returns true the first time a given alert tag is seen within ttl seconds. */
 async function alertOnce(tag, ttl = 3600) {
   const result = await getRedis().set(`ks:alerted:${tag}`, "1", "EX", ttl, "NX");
   return result === "OK";

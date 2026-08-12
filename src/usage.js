@@ -1,6 +1,4 @@
-/**
- * Shared helpers for resolving an alias and doing the fast pre-checks.
- */
+
 const { Op } = require("sequelize");
 const cache = require("./cache");
 const { ApiKey, KeyLimit, KeyUsage } = require("./models");
@@ -21,7 +19,6 @@ async function monthSpendFromDb(apiKeyId) {
   return total || 0.0;
 }
 
-/** Redis first; reconcile from Postgres only on a cache miss. */
 async function cachedSpend(apiKeyId) {
   const value = await cache.peekSpend(apiKeyId);
   if (value !== null) return value;
@@ -38,7 +35,6 @@ async function loadLimit(apiKeyId) {
   return KeyLimit.findOne({ where: { apiKeyId } });
 }
 
-/** Runs before the provider call. Redis-only, no blocking DB work on the hot path. */
 async function precheck(key, limit) {
   if (!limit) return null;
 

@@ -4,8 +4,7 @@ const { sequelize } = require("./src/db");
 const { closeRedis } = require("./src/cache");
 
 async function main() {
-  // Fail fast with a clear message if Postgres isn't reachable, rather than
-  // starting up and having every request 500.
+
   await sequelize.authenticate();
 
   const app = createApp();
@@ -13,8 +12,6 @@ async function main() {
     console.log(`KeyShort listening on :${settings.port}`);
   });
 
-  // Mirrors the FastAPI lifespan's shutdown: close the DB pool and Redis
-  // cleanly instead of dropping connections mid-flight.
   async function shutdown(signal) {
     console.log(`${signal} received, shutting down...`);
     server.close(async () => {

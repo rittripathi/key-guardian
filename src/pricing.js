@@ -1,8 +1,4 @@
-/**
- * Rough USD cost estimation from a provider response body.
- */
 
-// USD per 1K tokens: [prompt, completion]
 const PRICES = {
   "gpt-4o": [0.0025, 0.01],
   "gpt-4o-mini": [0.00015, 0.0006],

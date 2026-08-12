@@ -5,13 +5,7 @@ function truthy(value, fallback = false) {
   return ["1", "true", "yes", "on"].includes(String(value).toLowerCase());
 }
 
-/**
- * Node's pg driver (and Sequelize's postgres dialect) accept both the
- * "postgres://" and "postgresql://" schemes natively, and don't choke on
- * libpq-only query args the way some drivers do. We still strip the
- * libpq-only args some hosts (Neon/Render) append, to keep the URL clean
- * and to mirror the Python service's normalization step.
- */
+
 function normalizeDatabaseUrl(rawUrl) {
   let url = rawUrl;
   if (url.startsWith("postgres://")) {

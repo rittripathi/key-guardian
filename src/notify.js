@@ -1,6 +1,4 @@
-/**
- * Alert creation plus outbound delivery channels.
- */
+
 const { settings } = require("./config");
 const { Alert } = require("./models");
 
@@ -26,7 +24,7 @@ async function sendTelegram(text) {
       clearTimeout(timeout);
     }
   } catch (err) {
-    // alerting must never break the request
+
     console.warn("telegram delivery failed:", err.message);
   }
 }

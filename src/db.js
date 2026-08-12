@@ -3,9 +3,7 @@ const { settings } = require("./config");
 
 const dialectOptions = {};
 if (settings.isNeon) {
-  // Neon requires TLS; rejectUnauthorized:false mirrors the "ssl: True" the
-  // Python service passed to asyncpg (Neon's cert chain isn't always in the
-  // default trust store on small containers).
+
   dialectOptions.ssl = { require: true, rejectUnauthorized: false };
 }
 
@@ -14,7 +12,7 @@ const sequelize = new Sequelize(settings.normalizedDatabaseUrl, {
   logging: false,
   dialectOptions,
   pool: {
-    max: 10, // pool_size(5) + max_overflow(5) from the Python config
+    max: 10, 
     min: 0,
     idle: 10000,
     acquire: 30000,

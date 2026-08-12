@@ -2,7 +2,6 @@ const crypto = require("crypto");
 const argon2 = require("argon2");
 const { settings } = require("./config");
 
-// ---------- passwords / passphrases ----------
 
 async function hashSecret(raw) {
   return argon2.hash(raw, { type: argon2.argon2id });
@@ -13,17 +12,11 @@ async function verifySecret(hashed, raw) {
   try {
     return await argon2.verify(hashed, raw);
   } catch (err) {
-    // any argon2 failure (malformed hash, mismatch) means "no"
     return false;
   }
 }
 
-// ---------- sessions ----------
-//
-// A small hand-rolled equivalent of itsdangerous's URLSafeTimedSerializer:
-// base64url(JSON payload) + "." + base64url(HMAC-SHA256 signature).
-// The payload carries an `iat` (issued-at) timestamp so we can enforce
-// settings.sessionMaxAge the same way the Python side used `max_age`.
+
 
 function base64url(buf) {
   return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");

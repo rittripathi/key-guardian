@@ -1,12 +1,4 @@
-/**
- * The proxy hot path.
- *
- * Flow (nothing blocking sits between the pre-checks and the provider call):
- *
- *     resolve alias -> active? -> passphrase? -> Redis rate -> cached spend
- *     -> forward -> stream back -> fire-and-forget accounting once the
- *        response has finished sending
- */
+
 const express = require("express");
 const cache = require("../cache");
 const pricing = require("../pricing");
@@ -19,7 +11,6 @@ const { asyncHandler } = require("../middleware/asyncHandler");
 
 const router = express.Router();
 
-// Response bytes buffered for cost parsing. Beyond this we fall back to a flat cost.
 const MAX_CAPTURE = 512 * 1024;
 
 const HOP_BY_HOP = new Set([
