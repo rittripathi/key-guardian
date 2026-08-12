@@ -1,116 +1,135 @@
-# KeyShort (Node.js / Express port)
+# KeyShort
 
-> Secure API Key Management for AI Applications
+Secure API key vault for AI applications. Instead of handing out real provider keys (OpenAI, Anthropic, etc.), you generate an **alias** (`key1`, `key2`, ...) and applications authenticate with that. KeyShort stores the real key encrypted, injects it at request time, and adds rate limiting, spend caps, and revocation on top.
 
-This is a full backend rewrite of the original **FastAPI + SQLAlchemy** KeyShort
-service in **Node.js + Express**. Same behavior, same database shape, same
-routes — different runtime.
+**Live:** https://keyvault-2yfb.onrender.com/
 
-KeyShort lets applications authenticate with **aliases** (`key1`, `key2`, …)
-instead of real provider secrets. It proxies requests to OpenAI/Anthropic/
-Groq/OpenRouter/any OpenAI-compatible API, decrypting the real key
-server-side, while adding rate limiting, monthly spend caps, passphrase
-protection, usage tracking, and instant revocation.
+## Why
+
+If you hand your real API key to three different apps/scripts and it leaks, you have to rotate it everywhere. With KeyShort, apps only ever see an alias. If one is compromised, you revoke that alias — the real key and every other alias stay untouched.
+
+## What it does
+
+- **Alias-based routing** — real provider keys never leave the vault
+- **Encrypted storage** — AES-256-GCM at rest, Argon2 for passphrase hashing
+- **Rate limiting** — Redis-backed, fixed-window counters on the proxy hot path
+- **Monthly spend caps** — stop a leaked/misused alias from running up a bill
+- **Passphrase protection** — optional extra secret per alias
+- **Soft revoke** — disable an alias instantly without deleting its usage history
+- **Usage tracking** — per-alias request/spend history
+- **Telegram alerts** — notified on leaks or spend threshold breaches
+
+## How it works
+
+A single FastAPI app serves both the dashboard (server-rendered Jinja2 + HTMX) and the proxy. On a proxied request:
+
+1. Request hits `/proxy/<alias>/...` with the alias as the bearer token.
+2. Redis checks the alias hasn't exceeded its rate limit (fixed-window).
+3. Postgres is queried for the alias's hashed passphrase (Argon2, verified if set) and encrypted key.
+4. The real key is decrypted in memory, the request is forwarded to the provider with it, and the response is streamed straight back (SSE-safe, so streaming completions aren't buffered).
+5. Usage/spend logging happens asynchronously after the response completes, so it doesn't add latency to the request itself.
+
+```
+Client → FastAPI proxy → Postgres (encrypted keys) + Redis (rate limits) → provider (OpenAI / Anthropic / etc.)
+```
+
+## Usage
+
+**curl:**
+```bash
+curl https://<your-app>/proxy/key2/v1/chat/completions \
+  -H "Authorization: Bearer key2" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "model": "gpt-4o-mini",
+        "messages": [{"role": "user", "content": "Hello"}]
+      }'
+```
+
+**OpenAI SDK:**
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="key2",
+    base_url="https://<your-app>/proxy/key2/v1"
+)
+```
+
+Everything after `/proxy/<alias>/` is forwarded as-is to the underlying provider — so any provider-compatible SDK works, just point `base_url` at your alias.
 
 ## Tech stack
 
-| Layer          | Original (Python)         | This port (Node.js)              |
-|----------------|----------------------------|-----------------------------------|
-| Web framework  | FastAPI + uvicorn          | Express 4                         |
-| Templates      | Jinja2 + HTMX               | Nunjucks (same syntax) + HTMX     |
-| ORM            | SQLAlchemy (async)          | Sequelize                         |
-| DB driver      | asyncpg                     | pg (node-postgres)                |
-| Migrations     | Alembic                     | Plain `.sql` files + small runner |
-| Cache          | redis-py (async)            | ioredis                           |
-| Password hash  | argon2-cffi                 | argon2 (node-argon2)              |
-| Encryption     | `cryptography` AES-256-GCM  | Node `crypto` AES-256-GCM         |
-| Sessions       | itsdangerous signed cookie  | Hand-rolled HMAC-signed cookie    |
-| HTTP client (proxy) | httpx (streaming)      | native `fetch` (streaming)        |
-| Deployment     | Render                      | Render                            |
+| Layer | Tech |
+|---|---|
+| Backend | FastAPI |
+| Templates | Jinja2 + HTMX |
+| Database | PostgreSQL (Neon) |
+| Cache / rate limiting | Redis |
+| ORM | SQLAlchemy |
+| Encryption | AES-256-GCM (keys) + Argon2 (passphrases) |
+| Migrations | Alembic |
+| Deployment | Render |
 
-## Project layout
-
-```
-server.js              entry point
-src/
-  app.js               Express app factory, middleware wiring, error handler
-  config.js             env var loading (mirrors config.py)
-  db.js                  Sequelize connection (mirrors db.py)
-  cache.js               Redis counters (mirrors cache.py)
-  security.js            AES-256-GCM, Argon2, signed session cookies (mirrors security.py)
-  providers.js            provider registry (mirrors providers.py)
-  pricing.js               cost estimation (mirrors pricing.py)
-  notify.js                 Alert creation + Telegram (mirrors notify.py)
-  usage.js                   pre-check helpers (mirrors usage.py)
-  templating.js               Nunjucks setup + money/since filters (mirrors templating.py)
-  httpError.js                 HTTPException-equivalent
-  models/                       Sequelize models (mirrors models.py)
-  middleware/auth.js             session/auth middleware (mirrors deps.py)
-  middleware/asyncHandler.js      forwards async route errors to Express
-  routes/                          health, auth, keys, alerts, proxy routers
-views/                                  Nunjucks templates (ported from Jinja2)
-migrations/                              raw SQL, applied by scripts/migrate.js
-scripts/                                  migrate.js, generate-key.js, keepalive.js
-```
-
-## Setup
+## Running locally
 
 ```bash
-npm install
-cp .env.example .env        # then fill in DATABASE_URL, REDIS_URL, SECRET_KEY, ...
-npm run generate-key        # prints a value for ENCRYPTION_KEY — paste into .env
-npm run migrate              # creates the schema
-npm start                     # or: npm run dev  (auto-restart on change)
+cd backend
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+cp .env.example .env        # fill in the values below
+python -m app.security       # generates ENCRYPTION_KEY if needed
+alembic upgrade head
+
+uvicorn app.main:app --reload
 ```
 
-Requires Node 18+ (uses the global `fetch`/`AbortController`; developed and
-tested against Node 22).
+Then visit `http://localhost:8000`.
 
-## Notes on the port
+You'll need Postgres and Redis reachable locally (or point `DATABASE_URL` / `REDIS_URL` at hosted free-tier instances — Neon and Upstash/Redis Cloud both work).
 
-- **Aliases are globally unique**, not per-user — `/proxy/{alias}/...` has no
-  user context to scope by. This matches migration `0002` in the original app.
-- **The proxy route bypasses the dashboard's session/body-parsing
-  middleware entirely** and gets its own raw-body parser scoped to `/proxy`,
-  so arbitrary request bodies (any content type, streaming SSE responses)
-  pass through untouched. It also carries a two-phase timeout — 10s to
-  establish the upstream connection, then up to 600s of *inactivity* between
-  streamed chunks — matching the original's `httpx.AsyncClient` timeout
-  profile so long-running completions aren't killed early.
-- **Password/passphrase verification uses async Argon2** (`argon2.verify`),
-  whereas the original Python code called its Argon2 verify synchronously
-  (blocking the event loop briefly on every check). This port always awaits
-  it, which is both more correct for Node's single-threaded event loop and a
-  minor performance improvement.
-- **Estimated costs are clearly labeled as estimates in the UI.** Token-based
-  cost estimation (`src/pricing.js`) uses a hardcoded price table and prefix
-  matching — it's a reasonable approximation, not your exact provider
-  invoice. The dashboard and key detail page now show a tooltip disclaimer
-  next to every "Spend this month" and "Cost" figure.
-- **No auto-generated API docs.** FastAPI derives Swagger/OpenAPI docs from
-  Pydantic models automatically; Express has no equivalent without adding
-  and maintaining separate OpenAPI annotations, which was out of scope here.
-- Existing Python-side password hashes and encrypted secrets **will not
-  carry over** — this is a new service with its own `SECRET_KEY` and
-  `ENCRYPTION_KEY`. Point it at a fresh database (the migrations create the
-  schema from scratch) rather than an existing Python-managed one.
+## Environment variables
 
-## Deploying (Render)
+```
+DATABASE_URL          # Postgres connection string
+REDIS_URL              # Redis connection string
+ENCRYPTION_KEY          # AES-256-GCM key for encrypting stored provider keys
+PUBLIC_BASE_URL          # public URL of this deployment, used in proxy URLs
+TELEGRAM_BOT_TOKEN         # optional, for leak/spend alerts
+TELEGRAM_CHAT_ID          # optional, for leak/spend alerts
+```
 
-`render.yaml` is included, updated for the Node runtime — `npm install` to
-build, `npm run migrate && npm start` to launch the web service, and a
-`npm run keepalive` cron job every 10 minutes (pings `/healthz` so the free
-tier doesn't spin down, and reconciles Redis's cached monthly spend against
-Postgres).
+## Deploying
 
-## A note on testing
+Deployed on Render with Neon Postgres and Redis. `render.yaml` defines the service; migrations run automatically via Alembic on deploy.
 
-This port was written and reviewed carefully — every relative `require()`
-path and every module was syntax-checked, the pure-logic pieces (pricing,
-AES-256-GCM round-tripping, the signed session cookie) were unit-tested
-directly, and every route/template was cross-checked line-by-line against
-the original Python source. It has **not** been run end-to-end against a
-real Postgres + Redis instance, since that requires `npm install` against
-the network. Before deploying, run through the core flows once yourself
-(register → create a key → test connection → proxy a real request → check
-usage/alerts show up) to be sure.
+## Project structure
+
+```
+backend/
+├── app/
+│   ├── main.py
+│   ├── models.py
+│   ├── security.py     # encryption, passphrase hashing
+│   ├── cache.py         # Redis rate limiting
+│   ├── pricing.py       # per-provider cost calculation
+│   ├── usage.py         # async usage/spend logging
+│   ├── providers.py       # provider request forwarding
+│   ├── notify.py        # Telegram alerts
+│   ├── routers/
+│   └── templates/
+├── migrations/          # Alembic
+├── scripts/
+└── render.yaml
+```
+
+## Roadmap
+
+- OAuth login
+- Team workspaces
+- Multi-provider support in a single alias (fallback/load balancing)
+- Audit logs
+- Webhooks
+- Python/JS client SDKs
