@@ -5,6 +5,10 @@ const { asyncHandler } = require("../middleware/asyncHandler");
 
 const router = express.Router();
 
+router.get("/ping", (req, res) => {
+  res.status(200).json({ status: "ok" });
+});
+
 router.get(
   "/healthz",
   asyncHandler(async (req, res) => {
